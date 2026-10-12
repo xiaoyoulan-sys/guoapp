@@ -35,6 +35,9 @@ jobs:
       - name: Add MinGW to PATH
         shell: pwsh
         run: '"C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append'
+      - name: Resolve newly added Flutter dependencies
+        shell: pwsh
+        run: flutter pub get
       - name: Build and package full-source Windows app
         shell: pwsh
         run: python scripts/build_windows.py --all-sources
