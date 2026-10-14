@@ -41,6 +41,18 @@ jobs:
       - name: Build and package full-source Windows app
         shell: pwsh
         run: python scripts/build_windows.py --all-sources
+      - name: Install media regression dependency
+        shell: pwsh
+        run: choco install ffmpeg --no-progress -y
+      - name: Verify packaged Windows playback
+        shell: pwsh
+        run: |
+          $env:GUOAPP_TEST_LIBMPV = (Resolve-Path 'build/windows/x64/runner/Release/libmpv-2.dll').Path
+          $env:GUOAPP_TEST_PYTHON = (Get-Command python).Source
+          Get-Command ffmpeg -ErrorAction Stop
+          Set-Location native
+          go test ./core -run 'TestNative(Stream|HLSExtensionless)' -count=1 -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: zhenguojian-windows-x64
