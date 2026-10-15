@@ -172,7 +172,7 @@ jobs:
 
   release:
     needs: [android]
-    if: always() && needs.android.result == 'success'
+    if: github.event_name == 'push' && needs.android.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
