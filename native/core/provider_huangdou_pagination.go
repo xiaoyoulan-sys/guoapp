@@ -18,7 +18,11 @@ func huangdouCatalogHasMore(decoded any, page, rowCount int) (bool, error) {
 	if total, valid := webProviderInteger(firstPresent(data, "total", "total_count", "totalCount"), 100000000); valid && total >= rowCount {
 		hasMore = page < (total+pageSize-1)/pageSize
 	}
-	if value := firstPresent(data, "has_more", "hasMore"); value != nil {
+	value, found := data["has_more"]
+	if !found {
+		value, found = data["hasMore"]
+	}
+	if found && value != nil {
 		more, valid := yeguoFlag(value)
 		if !valid {
 			return false, errors.New("黄豆返回的分页标记无效，已停止继续加载")
