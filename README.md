@@ -2,7 +2,11 @@
 
 > ⚠️ **免责声明**：本项目源码来自网上大名鼎鼎的**鱼佬**（原作者）。我只是把它拿来打包、测试着玩，方便自己用，**不保证任何可用性，随时可能删库**。
 
-Flutter 多端独立短剧 / 影视应用，原名「短剧库 APP」。站源请求、解析、下载和播放均在设备上完成，不依赖自建服务。当前源码版本：**0.2.51+57**。
+Flutter 多端独立短剧 / 影视应用，原名「短剧库 APP」。站源请求、解析、下载和播放均在设备上完成，不依赖自建服务。当前源码版本：**0.2.68+75**。
+
+0.2.68 为全部站源增加跨页重复保护：页码前进但没有新增剧集时立即结束自动加载，避免页数无限增长。黄豆同时校验接口页码、总数与下一页标记。
+
+0.2.67 全部可用站源默认分批续载当前接口可访问的目录，直到接口无下一页；各站源分别保存进度，重启后续载。
 
 本轮在 0.2.50 基线上新增两个原生站源：**韩小圈**（`hanxiaoquan`，韩剧 / 韩国电影 / 韩国综艺 / 韩国动漫）与**鬼片网**（`guipian`，鬼片 / 电视剧 / 动漫）。默认可见站源顺序为：**红果 → 韩小圈 → 鬼片 → 青空**。
 
@@ -88,14 +92,7 @@ Flutter 多端独立短剧 / 影视应用，原名「短剧库 APP」。站源�
 
 Android 正式发布使用同一签名并递增构建号，在仓库 Secrets 配置：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。未配置时生成 debug 签名预览包。
 
-本地不入库的 `android/key.properties`：
-
-~~~properties
-storeFile=/absolute/path/zhenguojian-release.jks
-storePassword=你的密码
-keyAlias=zhenguojian
-keyPassword=你的密码
-~~~
+本地签名参数保存在不入库的 `android/key.properties`，不要将密码或密钥提交到仓库。
 
 ## 开发与构建
 
