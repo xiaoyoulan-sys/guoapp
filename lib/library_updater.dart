@@ -57,9 +57,13 @@ class LibraryUpdater extends ChangeNotifier {
     final revision =
         '${status.operation}|${status.startedAt}|${status.finishedAt}|'
         '${status.updatedAt}|${status.count}|${status.storageError}';
-    if (!status.running &&
-        (status.finishedAt != null || submitted) &&
+    if ((!status.running ||
+            status.operation == 'auto' ||
+            (status.source == SourceSite.hongguo.id &&
+                status.operation == 'update')) &&
+        (status.running || status.finishedAt != null || submitted) &&
         {
+          'auto',
           'update',
           'more',
           'metadata',
@@ -80,7 +84,14 @@ class LibraryUpdater extends ChangeNotifier {
         if (!_valid) return;
         final revision = _revisions[source.id] ?? 0;
         try {
-          final status = await repository.sourceStatus(source.id);
+          var status = await repository.sourceStatus(source.id);
+          if (_valid &&
+              store.allowsSource(source.id) &&
+              source.id == SourceSite.hongguo.id &&
+              !status.running &&
+              !_pending.contains(source.id)) {
+            status = await repository.startSourceJob(source.id, 'auto');
+          }
           if (_valid && revision == (_revisions[source.id] ?? 0)) {
             _accept(status);
           }
