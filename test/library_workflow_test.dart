@@ -26,6 +26,18 @@ void main() {
     return store;
   }
 
+  test('refresh submits automatic loading for every available source', () async {
+    final store = await create();
+    final repository = LibraryFeatureRepository();
+    final updater = LibraryUpdater(repository, store);
+    addTearDown(updater.dispose);
+    await updater.refresh();
+    expect(
+      repository.starts,
+      store.sources.map((source) => '${source.id}:auto').toList(),
+    );
+  });
+
   test(
     'unified updates share source tasks and deliver each finished cache once',
     () async {

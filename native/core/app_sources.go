@@ -16,6 +16,7 @@ type nativeSourceTask struct {
 }
 
 type nativeSourceRecord struct {
+	AutoStopped     bool                 `json:"autoStopped,omitempty"`
 	Operation       string               `json:"operation"`
 	Running         bool                 `json:"running"`
 	Stage           string               `json:"stage"`
@@ -170,7 +171,7 @@ func (engine *nativeEngine) startSourceTask(source, operation string, drama nati
 		return nativeSourceStatus{}, errNativeBuildSource
 	}
 	switch operation {
-	case "update", "more", "metadata", "vipMetadata", "check", "checkCatalog", "retrySave":
+	case "auto", "update", "more", "metadata", "vipMetadata", "check", "checkCatalog", "retrySave":
 	default:
 		return nativeSourceStatus{}, errors.New("无效的站源操作")
 	}
@@ -196,11 +197,25 @@ func (engine *nativeEngine) startSourceTask(source, operation string, drama nati
 		engine.sourceRecords = map[string]nativeSourceRecord{}
 	}
 	previous := engine.sourceRecords[source]
+	if operation == "auto" {
+		status := engine.sourceStatusLocked(source)
+		if previous.AutoStopped || !status.HasMore || status.StorageError != "" || time.Now().Before(previous.RetryAt) {
+			engine.mu.Unlock()
+			return status, nil
+		}
+	}
 	if time.Now().Before(previous.RetryAt) {
 		engine.mu.Unlock()
 		return nativeSourceStatus{}, fmt.Errorf("站源暂时暂停请求，请在 %d 秒后重试", max(1, int(time.Until(previous.RetryAt).Seconds()+.999)))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
+	if operation != "auto" && (source != sourceHongguo || operation != "update") {
+		cancel()
+		ctx, cancel = context.WithTimeout(context.Background(), 3*time.Minute)
+	}
+	if operation == "update" {
+		previous.AutoStopped = false
+	}
 	task := &nativeSourceTask{cancel: cancel}
 	engine.sourceTasks[source] = task
 	previous.Operation, previous.Running, previous.Stage = operation, true, "准备中"
@@ -219,6 +234,10 @@ func (engine *nativeEngine) cancelSourceTask(source string) nativeSourceStatus {
 	source = canonicalProviderSource(source)
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
+	record := engine.sourceRecords[source]
+	record.AutoStopped = true
+	engine.sourceRecords[source] = record
+	engine.saveSourceRecordsLocked()
 	if task := engine.sourceTasks[source]; task != nil {
 		task.cancel()
 		record := engine.sourceRecords[source]
@@ -243,6 +262,9 @@ func (engine *nativeEngine) runSourceTask(ctx context.Context, source, operation
 		record.Stage = "已完成"
 		if err != nil {
 			record.Stage, record.Error = "未完成", publicError(err).Error()
+			if operation == "auto" || source == sourceHongguo && operation == "update" {
+				record.RetryAt = time.Now().Add(5 * time.Minute)
+			}
 			var persistence *nativePersistenceError
 			if errors.As(err, &persistence) {
 				record.NeedsSave, record.Error = engine.catalogSaveError != nil, ""
@@ -253,6 +275,7 @@ func (engine *nativeEngine) runSourceTask(ctx context.Context, source, operation
 			}
 			if errors.Is(err, context.Canceled) {
 				record.Stage, record.Error = "已停止", "已保留更新内容，可稍后继续"
+				record.RetryAt = time.Time{}
 			}
 			if errors.Is(err, context.DeadlineExceeded) {
 				record.Error = "本次站源任务超时，已保留更新内容，可继续更新"
@@ -286,7 +309,7 @@ func (engine *nativeEngine) updateSource(ctx context.Context, source, operation 
 			return err
 		}
 	}
-	if operation == "more" || operation == "update" {
+	if operation == "more" || operation == "update" || operation == "auto" {
 		engine.changeSourceRecord(source, func(record *nativeSourceRecord) { record.Stage = "继续加载历史分页" })
 		limit := 1
 		if operation == "update" {
@@ -296,11 +319,15 @@ func (engine *nativeEngine) updateSource(ctx context.Context, source, operation 
 			}
 			limit = max(0, maxPages-1)
 		}
+		if operation == "auto" || source == sourceHongguo && operation == "update" {
+			limit = 1000000
+			engine.changeSourceRecord(source, func(record *nativeSourceRecord) { record.Stage = "自动加载全部可用目录" })
+		}
 		if err := engine.loadMoreSourceCatalogPages(ctx, source, limit); err != nil {
 			return err
 		}
 	}
-	if operation == "more" {
+	if operation == "more" || operation == "auto" {
 		return nil
 	}
 	items := engine.nativeCached(source).Items
@@ -410,7 +437,9 @@ func (engine *nativeEngine) updateSource(ctx context.Context, source, operation 
 }
 
 func (engine *nativeEngine) loadSourceCatalogPage(ctx context.Context, source string, page int) error {
-	result, err := engine.nativeCatalog(ctx, nativeInput{Source: source, Page: page, Force: true})
+	batchCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	result, err := engine.nativeCatalog(batchCtx, nativeInput{Source: source, Page: page, Force: true})
 	if err != nil {
 		return err
 	}
@@ -439,9 +468,25 @@ func (engine *nativeEngine) loadMoreSourceCatalogPages(ctx context.Context, sour
 		if page > 1000000 {
 			return errors.New("站源分页已达到接口范围，已保留目录位置")
 		}
+		previousCount := len(current.Items)
 		if err := engine.loadSourceCatalogPage(ctx, source, page); err != nil {
 			return err
 		}
+		fresh := engine.nativeCached(source)
+		if fresh.HasMore && len(fresh.Items) == previousCount {
+			return engine.finishSourcePagination(source)
+		}
 	}
 	return nil
+}
+
+func (engine *nativeEngine) finishSourcePagination(source string) error {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	state := engine.catalogStates[source]
+	state.HasMore = false
+	state.Warning = ""
+	state.UpdatedAt = time.Now()
+	engine.catalogStates[source] = state
+	return engine.writeCatalogDiskLocked()
 }

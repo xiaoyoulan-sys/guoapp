@@ -232,6 +232,12 @@ class _PlayerScreenState extends State<PlayerScreen>
     _configurePictureInPicture();
     _subscriptions.add(
       _player.stream.error.listen((error) {
+        if (error.trim().isNotEmpty) {
+          final diagnostic = error
+              .replaceAll(RegExp(r'https?://\S+'), '[媒体地址]')
+              .replaceAll(RegExp(r'[a-fA-F0-9]{32,}'), '[已隐藏]');
+          DiaryService.add('[Play] 播放器错误: $diagnostic');
+        }
         if (_enhancement.handlePlaybackError(error)) return;
         if (!_closed && _acceptErrors && mounted && error.trim().isNotEmpty) {
           _queueRecovery();
@@ -792,6 +798,10 @@ class _PlayerScreenState extends State<PlayerScreen>
     final action = current.local
         ? PlaybackRecoveryAction.stop
         : _recovery.next(current);
+    DiaryService.add(
+      '[Play] 自动恢复: ${action.name}, local=${current.local}, '
+      'route=${current.routeIndex + 1}/${current.routeCount}',
+    );
     if (action == PlaybackRecoveryAction.stop) {
       _resumePosition = position;
       final ticket = _generation;

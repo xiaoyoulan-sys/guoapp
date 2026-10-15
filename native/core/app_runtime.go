@@ -651,7 +651,7 @@ func (engine *nativeEngine) nativeCatalog(ctx context.Context, input nativeInput
 					items = append(items, drama)
 				}
 			}
-			result.HasMore = len(rows) >= 30
+			result.HasMore, err = huangdouCatalogHasMore(decoded, page, len(rows))
 		}
 	case sourceHuangguoAI:
 		items, result.HasMore, err = d.fetchHuangguoAICatalogPage(ctx, page, category)

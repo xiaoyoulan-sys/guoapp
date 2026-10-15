@@ -53,6 +53,7 @@ func reopenCatalogEngine(t *testing.T, directory string, transport sourceFixture
 	engine.downloader.client.Transport = transport
 	engine.downloader.limiter = newRequestLimiter(3, 0)
 	engine.downloader.cfg.Retries = 1
+	engine.downloader.cfg.MaxPagesPerSort = 1
 	return engine
 }
 
@@ -76,6 +77,7 @@ func TestNativeHongguoCursorRestartsPerCatalog(t *testing.T) {
 			strconv.Itoa(base+position+1), strconv.Itoa(base+position+2)), nil
 	})
 	engine := sourceFixtureEngine(t, transport)
+	engine.downloader.cfg.MaxPagesPerSort = 1
 	for _, input := range []nativeInput{
 		{Source: sourceHongguo, Page: 1},
 		{Source: sourceHongguo, Category: "short_play", Page: 1},
@@ -154,6 +156,7 @@ func TestNativeHongguoCursorRecoversSessionsAfterRestart(t *testing.T) {
 				return nativeHongguoResponse(request, 36, true, "new-session", "700002", "700003"), nil
 			})
 			engine := sourceFixtureEngine(t, transport)
+			engine.downloader.cfg.MaxPagesPerSort = 1
 			input := nativeInput{Source: sourceHongguo, Category: "ai_series", Page: 1}
 			if result, err := engine.nativeCatalog(context.Background(), input); err != nil || result.Warning != "" {
 				t.Fatal(err, result.Warning)
@@ -201,6 +204,7 @@ func TestNativeHongguoStalledCursorKeepsPartialItems(t *testing.T) {
 		return nativeHongguoResponse(request, 18, true, "fixture", "700002"), nil
 	})
 	engine := sourceFixtureEngine(t, transport)
+	engine.downloader.cfg.MaxPagesPerSort = 1
 	input := nativeInput{Source: sourceHongguo, Category: "ai_series", Page: 1}
 	if _, err := engine.nativeCatalog(context.Background(), input); err != nil {
 		t.Fatal(err)
@@ -264,6 +268,7 @@ func TestNativeCatalogSaveFailureRetriesWithoutAdvancing(t *testing.T) {
 			strconv.Itoa(1001+position), strconv.Itoa(1002+position)), nil
 	})
 	engine := sourceFixtureEngine(t, transport)
+	engine.downloader.cfg.MaxPagesPerSort = 1
 	input := nativeInput{Source: sourceHongguo, Category: "short_play", Page: 1}
 	if _, err := engine.nativeCatalog(context.Background(), input); err != nil {
 		t.Fatal(err)
@@ -363,6 +368,7 @@ func TestNativeCatalogMetadataSaveExcludesInFlightCursor(t *testing.T) {
 		return nativeHongguoResponse(request, payload.Offset+18, true, "fixture", strconv.Itoa(base+payload.Offset)), nil
 	})
 	engine := sourceFixtureEngine(t, transport)
+	engine.downloader.cfg.MaxPagesPerSort = 1
 	if _, err := engine.nativeCatalog(context.Background(), nativeInput{Source: sourceHongguo, Page: 1}); err != nil {
 		t.Fatal(err)
 	}
@@ -450,5 +456,168 @@ func TestNativeSourceRecordSaveFailureAndRetryDuringBackoff(t *testing.T) {
 	restarted = reopenCatalogEngine(t, engine.directory, nil)
 	if restarted.sourceStatus(sourceHongguo).Health.Sample != "新诊断" {
 		t.Fatal("oversized records replaced the previous saved report")
+	}
+}
+
+func TestNativeHongguoAutoLoadsAllBatches(t *testing.T) {
+	var calls atomic.Int32
+	engine := sourceFixtureEngine(t, func(request *http.Request) (*http.Response, error) {
+		payload := nativeHongguoRequestForTest(t, request)
+		calls.Add(1)
+		base := map[string]int{"default": 1000, "comic_series": 2000, "ai_series": 3000}[payload.Scene]
+		return nativeHongguoResponse(request, payload.Offset+18, payload.Offset < 36, "fixture-"+payload.Scene, strconv.Itoa(base+payload.Offset)), nil
+	})
+	engine.downloader.cfg.MaxPagesPerSort = 1
+	if _, err := engine.startSourceTask(sourceHongguo, "auto", nativeDrama{}); err != nil {
+		t.Fatal(err)
+	}
+	status := awaitSourceTask(t, engine, sourceHongguo)
+	if status.HasMore || status.Count != 9 || status.Error != "" || calls.Load() != 9 {
+		t.Fatal("automatic loading stopped before final batch", status, calls.Load())
+	}
+	if status, err := engine.startSourceTask(sourceHongguo, "auto", nativeDrama{}); err != nil || status.Running {
+		t.Fatal("exhausted catalog restarted", status, err)
+	}
+}
+
+func TestNativeSourceAutoLoadsAllBatches(t *testing.T) {
+	previousBuild := buildAllSources
+	buildAllSources = "true"
+	defer func() { buildAllSources = previousBuild }()
+	var pages []string
+	engine := sourceFixtureEngine(t, func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host != "api.yeguo.test" || request.URL.Path != "/api/theater/exploreList" {
+			t.Fatalf("unexpected automatic catalog request: %s", request.URL.String())
+		}
+		if err := request.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		page := request.Form.Get("page")
+		pages = append(pages, page)
+		body := fmt.Sprintf(
+			`{"status":"1","data":{"list":[{"video_id":"80%s","title":"自动分页%s","description":"完整资料","episode_count":"6"}],"page":%s,"limit":20,"total":3,"has_more":%q}}`,
+			page, page, page, map[bool]string{true: "1", false: "0"}[page != "3"],
+		)
+		return sourceFixtureResponse(request, http.StatusOK, body), nil
+	})
+	engine.downloader.yeguoClient().access = &yeguoAccess{
+		base: "https://api.yeguo.test", identifier: "auto-fixture", loadedAt: time.Now(),
+	}
+	if _, err := engine.startSourceTask(sourceYeguo, "auto", nativeDrama{}); err != nil {
+		t.Fatal(err)
+	}
+	status := awaitSourceTask(t, engine, sourceYeguo)
+	if strings.Join(pages, ",") != "1,2,3" || status.HasMore || status.Count != 3 || status.Error != "" {
+		t.Fatal("non-Hongguo source did not automatically load all pages", pages, status)
+	}
+	if status, err := engine.startSourceTask(sourceYeguo, "auto", nativeDrama{}); err != nil ||
+		status.Running || len(pages) != 3 {
+		t.Fatal("exhausted source restarted automatically", status, err, pages)
+	}
+}
+
+func TestNativeSourceAutoStopsAtRepeatedPage(t *testing.T) {
+	previousBuild := buildAllSources
+	buildAllSources = "true"
+	defer func() { buildAllSources = previousBuild }()
+	var pages []string
+	engine := sourceFixtureEngine(t, func(request *http.Request) (*http.Response, error) {
+		if err := request.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		page := request.Form.Get("page")
+		pages = append(pages, page)
+		body := fmt.Sprintf(`{"status":"1","data":{"list":[{"video_id":"801","title":"重复分页"}],"page":%s,"limit":1,"total":999,"has_more":"1"}}`, page)
+		return sourceFixtureResponse(request, http.StatusOK, body), nil
+	})
+	engine.downloader.yeguoClient().access = &yeguoAccess{
+		base: "https://api.yeguo.test", identifier: "repeat-fixture", loadedAt: time.Now(),
+	}
+	if _, err := engine.startSourceTask(sourceYeguo, "auto", nativeDrama{}); err != nil {
+		t.Fatal(err)
+	}
+	status := awaitSourceTask(t, engine, sourceYeguo)
+	if strings.Join(pages, ",") != "1,2" || status.Count != 1 || status.Page != 2 || status.HasMore || status.Error != "" {
+		t.Fatal("automatic source did not stop at a repeated page", pages, status)
+	}
+}
+
+func TestNativeHongguoAutoStopSurvivesRestart(t *testing.T) {
+	started := make(chan struct{}, 1)
+	transport := sourceFixtureTransport(func(request *http.Request) (*http.Response, error) {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})
+	engine := sourceFixtureEngine(t, transport)
+	engine.downloader.cfg.MaxPagesPerSort = 1
+	if _, err := engine.startSourceTask(sourceHongguo, "auto", nativeDrama{}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("auto did not start")
+	}
+	engine.cancelSourceTask(sourceHongguo)
+	status := awaitSourceTask(t, engine, sourceHongguo)
+	if status.Stage != "已停止" || !status.RetryAt.IsZero() {
+		t.Fatal(status)
+	}
+	restored := reopenCatalogEngine(t, engine.directory, transport)
+	status, err := restored.startSourceTask(sourceHongguo, "auto", nativeDrama{})
+	if err != nil || status.Running {
+		t.Fatal("explicit stop lost on restart", status, err)
+	}
+	status, err = restored.startSourceTask(sourceHongguo, "update", nativeDrama{})
+	if err != nil || !status.Running {
+		t.Fatal("manual update did not resume", status, err)
+	}
+	restored.cancelSourceTask(sourceHongguo)
+	awaitSourceTask(t, restored, sourceHongguo)
+}
+
+func TestNativeHongguoAutoResumesFailedBatchAfterRestart(t *testing.T) {
+	var fail atomic.Bool
+	fail.Store(true)
+	var resumed atomic.Bool
+	transport := sourceFixtureTransport(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/category/real-drama" {
+			return nil, context.DeadlineExceeded
+		}
+		payload := nativeHongguoRequestForTest(t, request)
+		if payload.Offset > 0 && fail.Load() {
+			return nil, context.DeadlineExceeded
+		}
+		if !fail.Load() && payload.Offset > 0 {
+			resumed.Store(true)
+		}
+		base := map[string]int{"default": 1000, "comic_series": 2000, "ai_series": 3000}[payload.Scene]
+		return nativeHongguoResponse(request, payload.Offset+18, payload.Offset < 18, "fixture-"+payload.Scene, strconv.Itoa(base+payload.Offset)), nil
+	})
+	engine := sourceFixtureEngine(t, transport)
+	engine.downloader.cfg.MaxPagesPerSort = 1
+	if _, err := engine.startSourceTask(sourceHongguo, "auto", nativeDrama{}); err != nil {
+		t.Fatal(err)
+	}
+	status := awaitSourceTask(t, engine, sourceHongguo)
+	if status.Count != 3 || !status.HasMore || status.Error == "" || !time.Now().Before(status.RetryAt) {
+		t.Fatal("failure lost progress or retry delay", status)
+	}
+	restored := reopenCatalogEngine(t, engine.directory, transport)
+	if status, err := restored.startSourceTask(sourceHongguo, "auto", nativeDrama{}); err != nil || status.Running {
+		t.Fatal("restart ignored retry delay", status, err)
+	}
+	fail.Store(false)
+	restored.changeSourceRecord(sourceHongguo, func(record *nativeSourceRecord) { record.RetryAt = time.Time{} })
+	if _, err := restored.startSourceTask(sourceHongguo, "auto", nativeDrama{}); err != nil {
+		t.Fatal(err)
+	}
+	status = awaitSourceTask(t, restored, sourceHongguo)
+	if status.Count != 6 || status.HasMore || status.Error != "" || !resumed.Load() {
+		t.Fatal("failed to resume saved position", status)
 	}
 }
