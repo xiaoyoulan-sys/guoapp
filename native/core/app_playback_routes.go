@@ -95,6 +95,9 @@ func (engine *nativeEngine) nativeOpenPlayback(ctx context.Context, choice nativ
 			return nativePlan{}, err
 		}
 		plan.URL, choice.streamSession = stream.nativeOpen(media)
+		if choice.streamSession == "" {
+			return nativePlan{}, errors.New("无法初始化本机播放器，请重试")
+		}
 	}
 	choice.created = time.Now()
 	engine.mu.Lock()

@@ -14,6 +14,7 @@ func TestHuangdouCatalogPagination(t *testing.T) {
 		{name: "total", data: map[string]any{"page": 2, "page_size": 30, "total": 61}, page: 2, rows: 30, more: true},
 		{name: "last total page", data: map[string]any{"page": 3, "page_size": 30, "total": 61}, page: 3, rows: 1},
 		{name: "explicit end", data: map[string]any{"page": 2, "has_more": false}, page: 2, rows: 30},
+		{name: "camel case explicit end", data: map[string]any{"page": 2, "hasMore": false}, page: 2, rows: 30},
 		{name: "wrong page", data: map[string]any{"page": 1, "has_more": true}, page: 2, rows: 30, wantErr: true},
 		{name: "empty continuation", data: map[string]any{"page": 2, "has_more": true}, page: 2, wantErr: true},
 	}

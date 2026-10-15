@@ -70,7 +70,7 @@ func newNativeStreamServer(d *Downloader) (*nativeStreamServer, error) {
 func (stream *nativeStreamServer) nativeOpen(media providerMedia) (string, string) {
 	tokenBytes := make([]byte, 24)
 	if _, err := rand.Read(tokenBytes); err != nil {
-		panic(err)
+		return "", ""
 	}
 	token := hex.EncodeToString(tokenBytes)
 	ctx, cancel := context.WithCancel(providerMediaContext(context.Background(), media.credentials))
