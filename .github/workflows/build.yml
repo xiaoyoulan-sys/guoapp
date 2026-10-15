@@ -222,11 +222,7 @@ jobs:
             printf '%s\n' "- *-arm64-v8a.apk：绝大多数手机选这个"
             printf '%s\n' "- *-armeabi-v7a.apk：较老的 32 位手机"
             printf '%s\n' "- *-x86_64.apk：模拟器"
-            printf '\n%s\n' "iOS（未签名，需自行签名后才能安装）："
-            printf '%s\n' "- *-ios-unsigned.ipa：未签名 IPA，用 AltStore / Sideloadly / TrollStore 等工具自签后安装"
-            printf '%s\n' "- *-ios-unsigned-app.zip：未签名 Runner.app 压缩包，供自行签名 / 打包使用"
-            printf '\n%s\n' "Windows（解压后运行 hongguojian.exe 或 zhenguojian.exe）："
-            printf '%s\n' "- *-windows-x64.zip：Windows 10/11 x64 完整包；构建机没有音频和图形设备，播放自检未通过，未做设备验收"
+            printf '\n%s\n' "Windows 真果鉴完整包由单独的 Build Windows full sources 工作流生成，请到该工作流的 Artifacts 下载；当前 Release 不包含 Windows 或 iOS 包。"
             printf '\n%s\n' "校验：SHA256SUMS.txt"
             if printf '%s\n' "${{ vars.ANDROID_CERT_SHA256 }}" | grep -q .; then
               printf '%s\n' "签名证书 SHA-256：${{ vars.ANDROID_CERT_SHA256 }}"
