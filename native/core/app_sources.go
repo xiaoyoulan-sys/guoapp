@@ -199,7 +199,7 @@ func (engine *nativeEngine) startSourceTask(source, operation string, drama nati
 	previous := engine.sourceRecords[source]
 	if operation == "auto" {
 		status := engine.sourceStatusLocked(source)
-		if source != sourceHongguo || previous.AutoStopped || !status.HasMore || status.StorageError != "" || time.Now().Before(previous.RetryAt) {
+		if previous.AutoStopped || !status.HasMore || status.StorageError != "" || time.Now().Before(previous.RetryAt) {
 			engine.mu.Unlock()
 			return status, nil
 		}
@@ -209,7 +209,7 @@ func (engine *nativeEngine) startSourceTask(source, operation string, drama nati
 		return nativeSourceStatus{}, fmt.Errorf("站源暂时暂停请求，请在 %d 秒后重试", max(1, int(time.Until(previous.RetryAt).Seconds()+.999)))
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	if source != sourceHongguo || (operation != "update" && operation != "auto") {
+	if operation != "auto" && (source != sourceHongguo || operation != "update") {
 		cancel()
 		ctx, cancel = context.WithTimeout(context.Background(), 3*time.Minute)
 	}
@@ -262,7 +262,7 @@ func (engine *nativeEngine) runSourceTask(ctx context.Context, source, operation
 		record.Stage = "已完成"
 		if err != nil {
 			record.Stage, record.Error = "未完成", publicError(err).Error()
-			if source == sourceHongguo && (operation == "auto" || operation == "update") {
+			if operation == "auto" || source == sourceHongguo && operation == "update" {
 				record.RetryAt = time.Now().Add(5 * time.Minute)
 			}
 			var persistence *nativePersistenceError
@@ -319,7 +319,7 @@ func (engine *nativeEngine) updateSource(ctx context.Context, source, operation 
 			}
 			limit = max(0, maxPages-1)
 		}
-		if source == sourceHongguo && (operation == "update" || operation == "auto") {
+		if operation == "auto" || source == sourceHongguo && operation == "update" {
 			limit = 1000000
 			engine.changeSourceRecord(source, func(record *nativeSourceRecord) { record.Stage = "自动加载全部可用目录" })
 		}

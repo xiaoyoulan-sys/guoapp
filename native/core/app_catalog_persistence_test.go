@@ -480,6 +480,42 @@ func TestNativeHongguoAutoLoadsAllBatches(t *testing.T) {
 	}
 }
 
+func TestNativeSourceAutoLoadsAllBatches(t *testing.T) {
+	previousBuild := buildAllSources
+	buildAllSources = "true"
+	defer func() { buildAllSources = previousBuild }()
+	var pages []string
+	engine := sourceFixtureEngine(t, func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host != "api.yeguo.test" || request.URL.Path != "/api/theater/exploreList" {
+			t.Fatalf("unexpected automatic catalog request: %s", request.URL.String())
+		}
+		if err := request.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		page := request.Form.Get("page")
+		pages = append(pages, page)
+		body := fmt.Sprintf(
+			`{"status":"1","data":{"list":[{"video_id":"80%s","title":"自动分页%s","description":"完整资料","episode_count":"6"}],"page":%s,"limit":20,"total":3,"has_more":%q}}`,
+			page, page, page, map[bool]string{true: "1", false: "0"}[page != "3"],
+		)
+		return sourceFixtureResponse(request, http.StatusOK, body), nil
+	})
+	engine.downloader.yeguoClient().access = &yeguoAccess{
+		base: "https://api.yeguo.test", identifier: "auto-fixture", loadedAt: time.Now(),
+	}
+	if _, err := engine.startSourceTask(sourceYeguo, "auto", nativeDrama{}); err != nil {
+		t.Fatal(err)
+	}
+	status := awaitSourceTask(t, engine, sourceYeguo)
+	if strings.Join(pages, ",") != "1,2,3" || status.HasMore || status.Count != 3 || status.Error != "" {
+		t.Fatal("non-Hongguo source did not automatically load all pages", pages, status)
+	}
+	if status, err := engine.startSourceTask(sourceYeguo, "auto", nativeDrama{}); err != nil ||
+		status.Running || len(pages) != 3 {
+		t.Fatal("exhausted source restarted automatically", status, err, pages)
+	}
+}
+
 func TestNativeHongguoAutoStopSurvivesRestart(t *testing.T) {
 	started := make(chan struct{}, 1)
 	transport := sourceFixtureTransport(func(request *http.Request) (*http.Response, error) {
