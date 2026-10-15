@@ -51,7 +51,7 @@ jobs:
           $env:GUOAPP_TEST_PYTHON = (Get-Command python).Source
           Get-Command ffmpeg -ErrorAction Stop
           Set-Location native
-          go test ./core -run 'TestNative(Stream|HLSExtensionless|Hongguo)' -count=1 -v
+          go test ./core -run 'TestNative(Stream|HLSExtensionless|Hongguo|SourceAuto)' -count=1 -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
