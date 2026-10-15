@@ -480,6 +480,34 @@ func TestNativeHongguoAutoLoadsAllBatches(t *testing.T) {
 	}
 }
 
+func TestNativeHongguoRefreshKeepsExhaustedCursor(t *testing.T) {
+	var newer atomic.Bool
+	engine := sourceFixtureEngine(t, func(request *http.Request) (*http.Response, error) {
+		payload := nativeHongguoRequestForTest(t, request)
+		if !newer.Load() {
+			return nativeHongguoResponse(request, 18, false, "fixture", "1001"), nil
+		}
+		if payload.Offset == 0 {
+			return nativeHongguoResponse(request, 18, true, "fixture", "1002"), nil
+		}
+		return nativeHongguoResponse(request, 36, false, "fixture", "1001"), nil
+	})
+	engine.downloader.cfg.MaxPagesPerSort = 3
+	input := nativeInput{Source: sourceHongguo, Category: "short_play", Page: 1, Force: true}
+	if _, err := engine.nativeCatalog(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	newer.Store(true)
+	if _, err := engine.nativeCatalog(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	cursor := engine.downloader.hongguoCatalogSnapshot().Feeds["category:short_play"]
+	items := engine.nativeCached("hongguo|short_play")
+	if !cursor.Exhausted || !cursor.Initialized || len(items.Items) != 2 || items.HasMore {
+		t.Fatal("refresh reopened an exhausted feed or lost its new item", cursor, items)
+	}
+}
+
 func TestNativeSourceAutoLoadsAllBatches(t *testing.T) {
 	previousBuild := buildAllSources
 	buildAllSources = "true"

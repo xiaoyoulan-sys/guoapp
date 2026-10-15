@@ -166,6 +166,9 @@ func (downloader *Downloader) fetchHongguoAppCatalogCategory(ctx context.Context
 			scan.cursor = cursor
 			scan.done = cursor.Exhausted
 			checkpoint := cursor
+			if scan.head && scan.tail.Exhausted {
+				checkpoint = scan.tail
+			}
 			if scan.head && newItems == 0 && !cursor.Exhausted {
 				scan.done = true
 				if scan.tail.Exhausted || scan.tail.Offset >= cursor.Offset {
