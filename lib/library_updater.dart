@@ -87,7 +87,6 @@ class LibraryUpdater extends ChangeNotifier {
           var status = await repository.sourceStatus(source.id);
           if (_valid &&
               store.allowsSource(source.id) &&
-              source.id == SourceSite.hongguo.id &&
               !status.running &&
               !_pending.contains(source.id)) {
             status = await repository.startSourceJob(source.id, 'auto');

@@ -186,7 +186,7 @@ class _SourcesScreenState extends State<SourcesScreen> {
                   const Padding(
                     padding: EdgeInsets.only(bottom: 16),
                     child: Text(
-                      '各站源可分别更新和检测。红果默认自动续载全部接口可用目录，可随时停止；点击更新可恢复续载。其他站源分批更新。离开此页后任务继续。',
+                      '全部站源默认自动续载当前接口可用目录，可分别停止；点击更新可恢复续载。失败站源会延迟重试，不影响其他站源。离开此页后任务继续。',
                     ),
                   ),
                   if (sources.isEmpty)
