@@ -207,7 +207,7 @@ func (engine *nativeEngine) saveCatalogCache(source string, result *nativeCatalo
 			}
 			result.Items = items
 			result.Page = max(1, state.Page)
-			if source != sourceHongguo && state.Page > 1 {
+			if !state.HasMore || source != sourceHongguo && state.Page > 1 {
 				result.HasMore = state.HasMore
 			}
 		}

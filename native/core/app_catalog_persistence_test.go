@@ -480,6 +480,34 @@ func TestNativeHongguoAutoLoadsAllBatches(t *testing.T) {
 	}
 }
 
+func TestNativeHongguoRefreshKeepsExhaustedCursor(t *testing.T) {
+	var newer atomic.Bool
+	engine := sourceFixtureEngine(t, func(request *http.Request) (*http.Response, error) {
+		payload := nativeHongguoRequestForTest(t, request)
+		if !newer.Load() {
+			return nativeHongguoResponse(request, 18, false, "fixture", "1001"), nil
+		}
+		if payload.Offset == 0 {
+			return nativeHongguoResponse(request, 18, true, "fixture", "1002"), nil
+		}
+		return nativeHongguoResponse(request, 36, false, "fixture", "1001"), nil
+	})
+	engine.downloader.cfg.MaxPagesPerSort = 3
+	input := nativeInput{Source: sourceHongguo, Category: "short_play", Page: 1, Force: true}
+	if _, err := engine.nativeCatalog(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	newer.Store(true)
+	if _, err := engine.nativeCatalog(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	cursor := engine.downloader.hongguoCatalogSnapshot().Feeds["category:short_play"]
+	items := engine.nativeCached("hongguo|short_play")
+	if !cursor.Exhausted || !cursor.Initialized || len(items.Items) != 2 || items.HasMore {
+		t.Fatal("refresh reopened an exhausted feed or lost its new item", cursor, items)
+	}
+}
+
 func TestNativeSourceAutoLoadsAllBatches(t *testing.T) {
 	previousBuild := buildAllSources
 	buildAllSources = "true"
@@ -537,8 +565,68 @@ func TestNativeSourceAutoStopsAtRepeatedPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := awaitSourceTask(t, engine, sourceYeguo)
-	if strings.Join(pages, ",") != "1,2" || status.Count != 1 || status.Page != 2 || status.HasMore || status.Error != "" {
+	if strings.Join(pages, ",") != "1,2,2" || status.Count != 1 || status.Page != 2 || status.HasMore || status.Error != "" {
 		t.Fatal("automatic source did not stop at a repeated page", pages, status)
+	}
+}
+
+func TestNativeSourceAutoRecoversTransientRepeatedPage(t *testing.T) {
+	previousBuild := buildAllSources
+	buildAllSources = "true"
+	defer func() { buildAllSources = previousBuild }()
+	var pages []string
+	secondPageCalls := 0
+	engine := sourceFixtureEngine(t, func(request *http.Request) (*http.Response, error) {
+		if err := request.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		page := request.Form.Get("page")
+		pages = append(pages, page)
+		id, more := "801", "1"
+		if page == "2" {
+			secondPageCalls++
+			if secondPageCalls == 2 {
+				id, more = "802", "0"
+			}
+		}
+		body := fmt.Sprintf(`{"status":"1","data":{"list":[{"video_id":%q,"title":"合成目录"}],"page":%s,"limit":1,"total":2,"has_more":%q}}`, id, page, more)
+		return sourceFixtureResponse(request, http.StatusOK, body), nil
+	})
+	engine.downloader.yeguoClient().access = &yeguoAccess{base: "https://api.yeguo.test", identifier: "repeat-fixture", loadedAt: time.Now()}
+	if _, err := engine.startSourceTask(sourceYeguo, "auto", nativeDrama{}); err != nil {
+		t.Fatal(err)
+	}
+	status := awaitSourceTask(t, engine, sourceYeguo)
+	if strings.Join(pages, ",") != "1,2,2" || status.Count != 2 || status.HasMore || status.Error != "" {
+		t.Fatal("transient repeated page incorrectly ended pagination", pages, status)
+	}
+}
+
+func TestNativeSourceAutoRefreshesExhaustedCatalog(t *testing.T) {
+	previousBuild := buildAllSources
+	buildAllSources = "true"
+	defer func() { buildAllSources = previousBuild }()
+	var pages []string
+	engine := sourceFixtureEngine(t, func(request *http.Request) (*http.Response, error) {
+		if err := request.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		page := request.Form.Get("page")
+		pages = append(pages, page)
+		return sourceFixtureResponse(request, http.StatusOK, `{"status":"1","data":{"list":[{"video_id":"802","title":"新剧"}],"page":1,"limit":1,"total":3,"has_more":"1"}}`), nil
+	})
+	engine.downloader.yeguoClient().access = &yeguoAccess{base: "https://api.yeguo.test", identifier: "refresh-fixture", loadedAt: time.Now()}
+	engine.catalogs[sourceYeguo] = []nativeDrama{{ID: "yeguo:801", Source: sourceYeguo, Title: "旧剧"}}
+	engine.catalogStates[sourceYeguo] = nativeCatalogState{Page: 3, HasMore: false, UpdatedAt: time.Now().Add(-nativeSourceRefreshInterval - time.Minute)}
+	if _, err := engine.startSourceTask(sourceYeguo, "auto", nativeDrama{}); err != nil {
+		t.Fatal(err)
+	}
+	status := awaitSourceTask(t, engine, sourceYeguo)
+	if strings.Join(pages, ",") != "1" || status.Count != 2 || status.Page != 3 || status.HasMore || status.Error != "" {
+		t.Fatal("exhausted catalog refresh lost prior content or pagination state", pages, status)
+	}
+	if again, err := engine.startSourceTask(sourceYeguo, "auto", nativeDrama{}); err != nil || again.Running || len(pages) != 1 {
+		t.Fatal("fresh catalog restarted automatic refresh", again, err, pages)
 	}
 }
 

@@ -40,7 +40,7 @@ class LibraryUpdater extends ChangeNotifier {
     unawaited(refresh());
     _timer = Timer.periodic(const Duration(seconds: 2), (_) {
       _ticks++;
-      if (_statuses.values.any((status) => status.running) || _ticks % 5 == 0) {
+      if (_statuses.values.any((status) => status.running) || _ticks % 30 == 0) {
         unawaited(refresh());
       }
     });

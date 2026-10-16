@@ -2,7 +2,9 @@
 
 > ⚠️ **免责声明**：本项目源码来自网上大名鼎鼎的**鱼佬**（原作者）。我只是把它拿来打包、测试着玩，方便自己用，**不保证任何可用性，随时可能删库**。
 
-Flutter 多端独立短剧 / 影视应用，原名「短剧库 APP」。站源请求、解析、下载和播放均在设备上完成，不依赖自建服务。当前源码版本：**0.2.68+75**。
+Flutter 多端独立短剧 / 影视应用，原名「短剧库 APP」。站源请求、解析、下载和播放均在设备上完成，不依赖自建服务。当前源码版本：**0.2.69+76**。
+
+0.2.69 已加载完整的站源每 6 小时自动检查首页新剧，保留原目录与分页终止状态；自动续载单轮最多 200 页、运行不超过 30 分钟，之后从缓存位置续载。重复页复查一次后停止，播放会话初始化失败会返回错误而非退出核心。普通站源的定时增量检查目前仅抓首页；短时间内新增内容超过一页时仍需手动更新。
 
 0.2.68 为全部站源增加跨页重复保护：页码前进但没有新增剧集时立即结束自动加载，避免页数无限增长。黄豆同时校验接口页码、总数与下一页标记。
 
@@ -80,15 +82,14 @@ Flutter 多端独立短剧 / 影视应用，原名「短剧库 APP」。站源�
 
 ### GitHub Actions
 
-推送 `main` / `master`、`v*` 标签、提交 PR，或手动运行 **Build app packages**，会先检查再构建两版（默认与 `--all-sources`）：
+推送 `main` / `master`、`v*` 标签、提交 PR，或手动运行 **Build app packages**，会检查并构建 Android 两版（默认与 `--all-sources`）。另有 **Build Windows full sources** 在 PR、主分支推送或手动运行时构建真果鉴 Windows 包并执行定向播放与分页测试：
 
 | 产物 | 内容 |
 | --- | --- |
 | `*-android` | 三种架构 APK 和 SHA256 |
-| `*-windows` | 完整 ZIP 和 SHA256 |
-| `*-ios-unsigned` | 未签名 `.app` ZIP 和 SHA256，不能直接当已签名 IPA 安装 |
+| `zhenguojian-windows-x64` | 单独 Windows 工作流的完整 ZIP 和 SHA256，未自动附加到 Release |
 
-推送 `main` 且 android / ios / windows 全部构建成功时，自动创建 / 更新 GitHub Release（tag `app-v{version}`）。发布新版本前需先在 `pubspec.yaml` 提升 `version`，否则会覆盖同名 tag 的 Release。
+推送主分支或 `v*` 标签且 Android 构建成功时，自动创建 / 更新仅含 Android 包的 GitHub Release（tag `app-v{version}`）；PR 不发布。发布新版本前需先在 `pubspec.yaml` 提升 `version`，否则会覆盖同名 tag 的 Release。
 
 Android 正式发布使用同一签名并递增构建号，在仓库 Secrets 配置：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。未配置时生成 debug 签名预览包。
 
