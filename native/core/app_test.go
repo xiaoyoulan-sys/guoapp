@@ -166,7 +166,10 @@ func TestHongguoDetailAndPlayableQuality(t *testing.T) {
 		map[string]any{"main_url": "https://media.example.test/low.mp4", "video_meta": map[string]any{"codec_type": "h264", "definition": "720p"}},
 		map[string]any{"main_url": "https://media.example.test/high.mp4", "video_meta": map[string]any{"codec_type": "hevc", "definition": "1080p"}},
 	}})
-	if err != nil || media.Quality != 1080 || !strings.HasSuffix(media.URL, "high.mp4") {
-		t.Fatalf("wrong playable quality: %v", err)
+	if err != nil || media.Quality != 720 || media.Codec != "h264" || !strings.HasSuffix(media.URL, "low.mp4") {
+		t.Fatalf("h264 must win over higher quality hevc: %+v, %v", media, err)
+	}
+	if len(media.Variants) != 2 || !strings.HasSuffix(media.Variants[1].URL, "high.mp4") {
+		t.Fatalf("higher quality hevc route was dropped: %+v", media.Variants)
 	}
 }

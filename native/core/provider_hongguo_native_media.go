@@ -16,6 +16,18 @@ func (downloader *Downloader) resolveHongguoAppMedia(ctx context.Context, videoI
 	if !hongguoNumericID.MatchString(videoID) {
 		return providerMedia{}, errors.New("红果视频 ID 无效")
 	}
+	media, err := downloader.resolveHongguoMultiMedia(ctx, videoID)
+	if err == nil {
+		return downloader.prepareHongguoPlaylist(ctx, media), nil
+	}
+	legacy, legacyErr := downloader.resolveHongguoLegacyMedia(ctx, videoID)
+	if legacyErr == nil {
+		return downloader.prepareHongguoPlaylist(ctx, legacy), nil
+	}
+	return providerMedia{}, fmt.Errorf("红果 App 接口未返回有效数据：%v；兼容入口：%v", err, legacyErr)
+}
+
+func (downloader *Downloader) resolveHongguoLegacyMedia(ctx context.Context, videoID string) (providerMedia, error) {
 	payload := map[string]any{
 		"video_id": videoID, "content_type": 1,
 		"biz_param": map[string]any{"need_all_video_definition": true, "video_platform": 3},
@@ -52,7 +64,7 @@ func selectHongguoAppMedia(model map[string]any) (providerMedia, error) {
 	var keyErr error
 	type scoredMedia struct {
 		media providerMedia
-		score int
+		rank  int
 	}
 	var choices []scoredMedia
 	for _, row := range variants {
@@ -84,17 +96,19 @@ func selectHongguoAppMedia(model map[string]any) (providerMedia, error) {
 			height = width
 		}
 		media.Quality = height
-		quality := height * 10
-		if codec == "h264" || codec == "avc1" {
-			quality++
-		}
+		media.Codec = codec
 		for _, address := range addresses {
 			media.URL = address
-			choices = append(choices, scoredMedia{media: media, score: quality})
+			choices = append(choices, scoredMedia{media: media, rank: providerCodecRank(codec)})
 		}
 	}
 	if len(choices) > 0 {
-		sort.SliceStable(choices, func(i, j int) bool { return choices[i].score > choices[j].score })
+		sort.SliceStable(choices, func(i, j int) bool {
+			if choices[i].rank != choices[j].rank {
+				return choices[i].rank < choices[j].rank
+			}
+			return choices[i].media.Quality > choices[j].media.Quality
+		})
 		selected := choices[0].media
 		for _, choice := range choices {
 			selected.Variants = append(selected.Variants, choice.media)

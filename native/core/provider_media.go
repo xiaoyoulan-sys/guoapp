@@ -18,7 +18,21 @@ type providerMedia struct {
 	HLSKey      []byte
 	CENCKey     []byte
 	Quality     int
+	Codec       string
 	Variants    []providerMedia
+}
+
+func providerCodecRank(codec string) int {
+	switch strings.ToLower(strings.TrimSpace(codec)) {
+	case "h264", "avc", "avc1":
+		return 0
+	case "hevc", "h265", "bytevc1", "hvc1", "hev1":
+		return 2
+	case "bytevc2", "bvc2":
+		return 3
+	default:
+		return 1
+	}
 }
 
 func (d *Downloader) providerBaseURL(source string) string {
